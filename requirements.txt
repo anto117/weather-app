@@ -1,0 +1,8 @@
+flask
+flask-cors
+requests
+pandas
+openrouteservice
+gunicorn
+scikit-learn
+statsmodels

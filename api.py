@@ -8,11 +8,11 @@ import math
 from datetime import datetime, timedelta
 import openrouteservice
 
-# --- Globals and Setup ---
+
 MODELS_DIR = 'models'
 DATA_FILE = "city_day.csv"
 
-# Check if the forecast feature is available
+
 forecast_feature_available = os.path.exists(MODELS_DIR) and len(os.listdir(MODELS_DIR)) > 0
 if forecast_feature_available:
     print(f"✅ {len(os.listdir(MODELS_DIR))} prediction models found. Forecast feature is enabled.")
@@ -20,12 +20,11 @@ else:
     print("⚠️ Warning: 'models' directory is empty or not found. Forecast feature will be disabled.")
     print("➡️ To enable, run 'python train_all_models.py' to create the models.")
 
-# --- API Keys ---
+
 WAQI_TOKEN = "863296fb81e839b073505ca569860cdf03f1ce80"
 WEATHER_API_KEY = "8724fb5e1424446a9f0152514250110"
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjliYjU2NGQxNzJiMzQwYWU5ZGI3ZTI5NTQ3ZDVhZTBlIiwiaCI6Im11cm11cjY0In0="
 
-# --- Helper Functions ---
 def get_coords_from_name(location_name):
     url = f"https://nominatim.openstreetmap.org/search?q={location_name}&format=json&limit=1"
     try:
@@ -253,5 +252,3 @@ def get_clean_route():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
