@@ -91,7 +91,7 @@ const ForecastPage = ({ locationData }) => {
     const { lat, lon } = locationData.location_coords || { lat: null, lon: null };
     if (!lat || !lon) { setError("Coordinates not available."); setIsLoading(false); return; }
 
-    fetch(`https://weather-app-1-6zck.onrender.com/api/forecast?lat=${lat}&lon=${lon}`)
+    fetch(`https://weather-app-35.onrender.com/api/forecast?lat=${lat}&lon=${lon}`)
       .then(res => res.ok ? res.json() : Promise.reject(`API Error: ${res.status}`))
       .then(data => {
         if (data.error) throw new Error(data.error);
@@ -235,7 +235,7 @@ const AqiPage = ({ data, location }) => {
         if (!searchQuery.trim()) return;
         setIsSearching(true);
         setSearchResults([]);
-        fetch(`https://weather-app-1-6zck.onrender.com/api/search-aqi?keyword=${searchQuery}`)
+        fetch(`https://weather-app-35.onrender.com/api/search-aqi?keyword=${searchQuery}`)
             .then(res => res.json())
             .then(data => { setSearchResults(data); setIsSearching(false); })
             .catch(err => { console.error("Search failed:", err); setIsSearching(false); });
@@ -326,7 +326,7 @@ const TripPlannerPage = () => {
         setError(null);
         setRoutes(null);
         setRouteInfo('');
-        fetch(`https://weather-app-1-6zck.onrender.com/api/clean-route?start=${start}&end=${destination}`)
+        fetch(`https://weather-app-35.onrender.com/api/clean-route?start=${start}&end=${destination}`)
             .then(res => res.json())
             .then(data => {
                 if (data.error) throw new Error(data.error);
@@ -376,7 +376,7 @@ const AqiScreen = () => {
       const { latitude, longitude } = position.coords;
       setIsLoading(true);
 
-      fetch(`https://weather-app-1-6zck.onrender.com/api/live-data?lat=${latitude}&lon=${longitude}`)
+      fetch(`https://weather-app-35.onrender.com/api/live-data?lat=${latitude}&lon=${longitude}`)
         .then(res => res.ok ? res.json() : Promise.reject(`API Error: ${res.status}`))
         .then(mainData => {
           if (mainData.error) throw new Error(mainData.error);
