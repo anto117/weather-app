@@ -12,7 +12,6 @@ import openrouteservice
 MODELS_DIR = 'models'
 DATA_FILE = "city_day.csv"
 
-
 forecast_feature_available = os.path.exists(MODELS_DIR) and len(os.listdir(MODELS_DIR)) > 0
 if forecast_feature_available:
     print(f"✅ {len(os.listdir(MODELS_DIR))} prediction models found. Forecast feature is enabled.")
@@ -20,10 +19,11 @@ else:
     print("⚠️ Warning: 'models' directory is empty or not found. Forecast feature will be disabled.")
     print("➡️ To enable, run 'python train_all_models.py' to create the models.")
 
-
 WAQI_TOKEN = "863296fb81e839b073505ca569860cdf03f1ce80"
 WEATHER_API_KEY = "8724fb5e1424446a9f0152514250110"
 ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjliYjU2NGQxNzJiMzQwYWU5ZGI3ZTI5NTQ3ZDVhZTBlIiwiaCI6Im11cm11cjY0In0="
+TEMPO_API_KEY = "YOUR_TEMPO_API_KEY"  # 🔹 Replace with your real Tempo API key
+
 
 def get_coords_from_name(location_name):
     url = f"https://nominatim.openstreetmap.org/search?q={location_name}&format=json&limit=1"
@@ -36,6 +36,7 @@ def get_coords_from_name(location_name):
         return None, None
     except requests.RequestException:
         return None, None
+
 
 def reverse_geocode(lat, lon):
     url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
@@ -50,14 +51,17 @@ def reverse_geocode(lat, lon):
     except requests.RequestException:
         return "Unknown Area", "Unknown"
 
+
 def fetch_waqi(lat, lon):
     url = f"https://api.waqi.info/feed/geo:{lat};{lon}/?token={WAQI_TOKEN}"
     try:
         r = requests.get(url)
         r.raise_for_status()
         data = r.json()
-        if data.get("status") != "ok": return None
-        if not isinstance(data["data"].get("aqi"), (int, float)): return None
+        if data.get("status") != "ok": 
+            return None
+        if not isinstance(data["data"].get("aqi"), (int, float)): 
+            return None
         iaqi = data["data"].get("iaqi", {})
         pollutants = {p: iaqi.get(p, {}).get("v", "N/A") for p in ["pm25", "pm10", "o3", "so2", "no2"]}
         return {
@@ -69,29 +73,39 @@ def fetch_waqi(lat, lon):
     except (requests.RequestException, KeyError):
         return None
 
+
 def fetch_weather(lat, lon):
     url = f"http://api.weatherapi.com/v1/forecast.json?key={WEATHER_API_KEY}&q={lat},{lon}&days=1&aqi=no&alerts=no"
     try:
         r = requests.get(url)
         r.raise_for_status()
         data = r.json()
-        if 'error' in data: return None
+        if 'error' in data: 
+            return None
         current = data["current"]
         forecast = data["forecast"]["forecastday"][0]
         return {
-            "current": {"temp": current["temp_c"], "is_day": current["is_day"], "description": current["condition"]["text"], "condition_code": current["condition"]["code"]}, 
+            "current": {
+                "temp": current["temp_c"], 
+                "is_day": current["is_day"], 
+                "description": current["condition"]["text"], 
+                "condition_code": current["condition"]["code"]
+            }, 
             "astro": forecast["astro"], 
             "hourly": [{"time": h["time_epoch"], "temp": h["temp_c"], "icon": h["condition"]["icon"]} for h in forecast["hour"]]
         }
     except requests.RequestException:
         return None
 
+
 def health_advice(aqi):
-    if not isinstance(aqi, (int, float)): return "Data not available."
+    if not isinstance(aqi, (int, float)): 
+        return "Data not available."
     if aqi <= 50: return "Good"
     if aqi <= 100: return "Moderate"
-    if aqi <= 150: return "Unhealthy for Sensitive Groups"
+    if aqi <= 150: return "Unhealthy for Sensitive Groups Please wear a mask outdoors."
     return "Unhealthy"
+
 
 def get_stations_in_bounds(lat, lon):
     lat_margin, lon_margin = 0.5, 0.5
@@ -101,36 +115,43 @@ def get_stations_in_bounds(lat, lon):
         r = requests.get(url)
         r.raise_for_status()
         data = r.json()
-        if data.get("status") != "ok": return []
+        if data.get("status") != "ok": 
+            return []
         return [{"lat": float(s["lat"]), "lon": float(s["lon"]), "aqi": int(s["aqi"])} for s in data["data"] if s["aqi"].replace('.', '', 1).isdigit()]
-    except requests.RequestException: return []
+    except requests.RequestException: 
+        return []
+
 
 def calculate_interpolated_aqi(user_lat, user_lon):
     stations = get_stations_in_bounds(user_lat, user_lon)
-    if not stations: return None, {}
+    if not stations: 
+        return None, {}
     for station in stations:
         station['dist'] = math.sqrt((station['lat'] - user_lat)**2 + (station['lon'] - user_lon)**2)
     nearby_stations = sorted(stations, key=lambda s: s['dist'])[:4]
     weighted_sum, weight_sum = 0, 0
     for station in nearby_stations:
-        if station['dist'] == 0: return station['aqi'], {}
+        if station['dist'] == 0: 
+            return station['aqi'], {}
         weight = 1 / station['dist']
         weighted_sum += station['aqi'] * weight
         weight_sum += weight
-    if weight_sum == 0: return None, {}
+    if weight_sum == 0: 
+        return None, {}
     interpolated_aqi = round(weighted_sum / weight_sum)
     closest_station_data = fetch_waqi(user_lat, user_lon)
     pollutants = closest_station_data.get('pollutants', {}) if closest_station_data else {}
     return interpolated_aqi, pollutants
 
-# --- Flask API Setup ---
+
 app = Flask(__name__)
 CORS(app)
 
-# --- API Endpoints ---
+
 @app.route("/api/status", methods=["GET"])
 def get_status():
     return jsonify({"features": {"forecast": forecast_feature_available}})
+
 
 @app.route("/api/forecast", methods=["GET"])
 def get_aqi_forecast():
@@ -154,11 +175,8 @@ def get_aqi_forecast():
     try:
         with open(model_path, "rb") as f:
             model_fit = pickle.load(f)
-        
-        # 🔹 Updated: Daily AQI prediction for next 7 days
         forecast_result = model_fit.get_forecast(steps=7)
         forecast_values = forecast_result.predicted_mean
-
         start_date = datetime.today()
         response_data = {
             "city_used_for_forecast": city,
@@ -171,10 +189,13 @@ def get_aqi_forecast():
     except Exception as e:
         return jsonify({"error": f"Prediction error: {str(e)}"}), 500
 
+
 @app.route("/api/live-data", methods=["GET"])
 def get_live_data():
-    lat = request.args.get("lat"); lon = request.args.get("lon")
-    if not lat or not lon: return jsonify({"error": "Lat/Lon are required"}), 400
+    lat = request.args.get("lat")
+    lon = request.args.get("lon")
+    if not lat or not lon: 
+        return jsonify({"error": "Lat/Lon are required"}), 400
     
     lat, lon = float(lat), float(lon)
     interpolated_aqi, pollutants = calculate_interpolated_aqi(lat, lon)
@@ -187,22 +208,79 @@ def get_live_data():
     city, state = reverse_geocode(lat, lon)
     return jsonify({"location": {"town": city, "district": state}, "aqiData": aqi_data, "weatherData": weather_data})
 
+
+# 🔹 Updated: North America → Tempo API, Else → WAQI API
 @app.route("/api/search-aqi", methods=["GET"])
 def search_aqi_by_keyword():
     keyword = request.args.get("keyword")
-    if not keyword: return jsonify({"error": "Search keyword is required"}), 400
-    url = f"https://api.waqi.info/search/?keyword={keyword}&token={WAQI_TOKEN}"
+    if not keyword:
+        return jsonify({"error": "Search keyword is required"}), 400
+
+    # Get coordinates for location
+    lat, lon = get_coords_from_name(keyword)
+    if not lat or not lon:
+        return jsonify({"error": "Could not determine location coordinates"}), 404
+
+    # Reverse geocode to get country
     try:
-        r = requests.get(url)
+        r = requests.get(f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json",
+                         headers={"User-Agent": "React-AQI-App"})
         r.raise_for_status()
-        data = r.json()
-        if data.get("status") != "ok":
-            return jsonify({"error": "Could not perform search"}), 500
-        stations = [{"name": s["station"]["name"], "aqi": int(s["aqi"]), "uid": s["uid"]} 
-                    for s in data["data"] if s.get("aqi") and s["aqi"].replace('.', '', 1).isdigit()]
-        return jsonify(stations)
-    except requests.RequestException as e:
-        return jsonify({"error": str(e)}), 500
+        address = r.json().get("address", {})
+        country = address.get("country", "")
+    except requests.RequestException:
+        country = ""
+
+    # Decide which API to use
+    north_america_countries = ["United States", "USA", "Canada", "Mexico"]
+    is_north_america = any(c.lower() in country.lower() for c in north_america_countries)
+
+    if is_north_america:
+        # ✅ Use Tempo API
+        try:
+            tempo_url = f"https://api.tempo.com/v1/airquality?lat={lat}&lon={lon}&apikey={TEMPO_API_KEY}"
+            r = requests.get(tempo_url)
+            r.raise_for_status()
+            data = r.json()
+
+            aqi = data.get("data", {}).get("aqi")
+            location_name = data.get("location", keyword)
+            pollutants = data.get("data", {}).get("pollutants", {})
+
+            return jsonify({
+                "source": "Tempo API",
+                "country": country,
+                "location": location_name,
+                "aqi": aqi,
+                "pollutants": pollutants
+            })
+        except requests.RequestException as e:
+            return jsonify({"error": f"Tempo API error: {str(e)}"}), 500
+    else:
+        # 🌍 Use WAQI API
+        try:
+            waqi_url = f"https://api.waqi.info/search/?keyword={keyword}&token={WAQI_TOKEN}"
+            r = requests.get(waqi_url)
+            r.raise_for_status()
+            data = r.json()
+
+            if data.get("status") != "ok":
+                return jsonify({"error": "Could not perform WAQI search"}), 500
+
+            stations = [
+                {
+                    "name": s["station"]["name"],
+                    "aqi": int(s["aqi"]),
+                    "uid": s["uid"],
+                    "source": "WAQI API"
+                }
+                for s in data["data"]
+                if s.get("aqi") and s["aqi"].replace('.', '', 1).isdigit()
+            ]
+            return jsonify(stations)
+        except requests.RequestException as e:
+            return jsonify({"error": f"WAQI API error: {str(e)}"}), 500
+
 
 @app.route("/api/clean-route", methods=["GET"])
 def get_clean_route():
@@ -252,3 +330,6 @@ def get_clean_route():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+if __name__ == "__main__":
+    app.run(debug=True)
