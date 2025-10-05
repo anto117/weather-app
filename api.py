@@ -209,50 +209,38 @@ def get_live_data():
     return jsonify({"location": {"town": city, "district": state}, "aqiData": aqi_data, "weatherData": weather_data})
 
 
-# 🔹 Updated: North America → Tempo API, Else → WAQI API
+# 🔹 Updated logic: North America → Tempo API, Else → WAQI
 @app.route("/api/search-aqi", methods=["GET"])
 def search_aqi_by_keyword():
     keyword = request.args.get("keyword")
     if not keyword:
         return jsonify({"error": "Search keyword is required"}), 400
 
-    # Get coordinates for location
     lat, lon = get_coords_from_name(keyword)
     if not lat or not lon:
         return jsonify({"error": "Could not determine location coordinates"}), 404
 
-    # Reverse geocode to get country
     try:
         r = requests.get(f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json",
                          headers={"User-Agent": "React-AQI-App"})
         r.raise_for_status()
-        address = r.json().get("address", {})
-        country = address.get("country", "")
+        country = r.json().get("address", {}).get("country", "")
     except requests.RequestException:
         country = ""
 
-    # Decide which API to use
-    north_america_countries = ["United States", "USA", "Canada", "Mexico"]
-    is_north_america = any(c.lower() in country.lower() for c in north_america_countries)
-
-    if is_north_america:
+    north_america = ["United States", "USA", "Canada", "Mexico"]
+    if any(c.lower() in country.lower() for c in north_america):
         # ✅ Use Tempo API
         try:
             tempo_url = f"https://api.tempo.com/v1/airquality?lat={lat}&lon={lon}&apikey={TEMPO_API_KEY}"
-            r = requests.get(tempo_url)
-            r.raise_for_status()
-            data = r.json()
-
-            aqi = data.get("data", {}).get("aqi")
-            location_name = data.get("location", keyword)
-            pollutants = data.get("data", {}).get("pollutants", {})
-
+            res = requests.get(tempo_url)
+            res.raise_for_status()
+            data = res.json()
             return jsonify({
                 "source": "Tempo API",
                 "country": country,
-                "location": location_name,
-                "aqi": aqi,
-                "pollutants": pollutants
+                "location": keyword,
+                "data": data
             })
         except requests.RequestException as e:
             return jsonify({"error": f"Tempo API error: {str(e)}"}), 500
@@ -260,24 +248,16 @@ def search_aqi_by_keyword():
         # 🌍 Use WAQI API
         try:
             waqi_url = f"https://api.waqi.info/search/?keyword={keyword}&token={WAQI_TOKEN}"
-            r = requests.get(waqi_url)
-            r.raise_for_status()
-            data = r.json()
-
+            res = requests.get(waqi_url)
+            res.raise_for_status()
+            data = res.json()
             if data.get("status") != "ok":
-                return jsonify({"error": "Could not perform WAQI search"}), 500
-
-            stations = [
-                {
-                    "name": s["station"]["name"],
-                    "aqi": int(s["aqi"]),
-                    "uid": s["uid"],
-                    "source": "WAQI API"
-                }
-                for s in data["data"]
-                if s.get("aqi") and s["aqi"].replace('.', '', 1).isdigit()
-            ]
-            return jsonify(stations)
+                return jsonify({"error": "WAQI search failed"}), 500
+            return jsonify({
+                "source": "WAQI API",
+                "country": country,
+                "data": data["data"]
+            })
         except requests.RequestException as e:
             return jsonify({"error": f"WAQI API error: {str(e)}"}), 500
 
