@@ -2,15 +2,15 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests, pickle, pandas as pd, os, math
 from datetime import datetime, timedelta
-import openrouteservice # You will need to run: pip install openrouteservice
+import openrouteservice 
 
 # --- CONFIGURATION ---
 # 🔒 SECURITY WARNING: Storing API keys directly in code is risky.
 #    It's better to use environment variables. For example: os.environ.get('WAQI_TOKEN')
 WAQI_TOKEN = "863296fb81e839b073505ca569860cdf03f1ce80"
 WEATHER_API_KEY = "8724fb5e1424446a9f0152514250110"
-ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjliYjU2NGQxNzJiMzQwYWU5ZGI3ZTI5NTQ3ZDVhZTBlIiwiaCI6Im11cm11cjY0In0=" # Your existing ORS key
-TEMPO_API_KEY = "YOUR_TEMPO_API_KEY"  # This is a placeholder, this feature branch will fail.
+ORS_API_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjliYjU2NGQxNzJiMzQwYWU5ZGI3ZTI5NTQ3ZDVhZTBlIiwiaCI6Im11cm11cjY4In0="
+TEMPO_API_KEY = "YOUR_TEMPO_API_KEY"
 
 MODELS_DIR = 'models'
 forecast_feature_available = os.path.exists(MODELS_DIR) and len(os.listdir(MODELS_DIR)) > 0
@@ -35,6 +35,7 @@ def get_coords_from_name(location_name):
     except requests.RequestException:
         return None, None
 
+# ✅ CHANGE: This function was updated to prioritize the village/town name.
 def reverse_geocode(lat, lon):
     url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
     try:
@@ -42,8 +43,9 @@ def reverse_geocode(lat, lon):
         r.raise_for_status()
         data = r.json()
         address = data.get("address", {})
-        city = (address.get("suburb") or address.get("hamlet") or
-                address.get("village") or address.get("town") or address.get("city") or "Unknown Area")
+        city = (address.get("village") or address.get("town") or 
+                address.get("suburb") or address.get("hamlet") or 
+                address.get("city") or "Unknown Area")
         state = address.get("state") or address.get("county") or "Unknown"
         return city, state
     except requests.RequestException:
@@ -109,7 +111,7 @@ def calculate_interpolated_aqi(user_lat, user_lon):
     nearby = sorted(stations, key=lambda s: s['dist'])[:4]
     weighted_sum, weight_sum = 0, 0
     for st in nearby:
-        if st['dist'] == 0: return st['aqi'], {} # If we are right on a station
+        if st['dist'] == 0: return st['aqi'], {}
         weight = 1 / st['dist']
         weighted_sum += st['aqi'] * weight
         weight_sum += weight
@@ -119,6 +121,7 @@ def calculate_interpolated_aqi(user_lat, user_lon):
 
 # --- API ROUTES ---
 
+# ✅ FIX: This route was updated to handle cases where the fallback API has no data.
 @app.route("/api/forecast")
 def get_aqi_forecast():
     lat, lon = request.args.get("lat"), request.args.get("lon")
@@ -131,7 +134,6 @@ def get_aqi_forecast():
     path = os.path.join(MODELS_DIR, model_file)
 
     if not os.path.exists(path):
-        # ✅ FIX: Fallback to Open-Meteo and FORMAT the data for the frontend
         try:
             end_date = (datetime.utcnow() + timedelta(days=30)).strftime('%Y-%m-%d')
             start_date = datetime.utcnow().strftime('%Y-%m-%d')
@@ -140,10 +142,9 @@ def get_aqi_forecast():
             r.raise_for_status()
             data = r.json().get('daily', {})
             
-            if not data.get('time') or not data.get('pm2_5'):
-                return jsonify({"error": "Fallback API returned no data"}), 404
+            if not data.get('time') or not data.get('pm2_5') or all(v is None for v in data['pm2_5']):
+                return jsonify({"error": "Forecast data not available for this location."}), 404
 
-            # Transform data to match the format expected by the frontend chart
             formatted_forecast = [
                 {"date": date, "predicted_aqi": round(aqi) if aqi is not None else 0}
                 for date, aqi in zip(data['time'], data['pm2_5'])
@@ -175,7 +176,7 @@ def get_live_data():
     lat, lon = float(lat), float(lon)
     
     aqi_data = fetch_waqi(lat, lon)
-    if not aqi_data: # If direct WAQI fails, try interpolation
+    if not aqi_data:
         interpolated_aqi, pollutants = calculate_interpolated_aqi(lat, lon)
         if interpolated_aqi:
              aqi_data = {"aqi": interpolated_aqi, "advice": health_advice(interpolated_aqi), "station": "Interpolated from nearby stations", "pollutants": pollutants}
@@ -195,12 +196,12 @@ def search_aqi_by_keyword():
         res = requests.get(url)
         res.raise_for_status()
         data = res.json()
-        if data.get("status") != "ok": return jsonify([]), 200 # Return empty list, not error
+        if data.get("status") != "ok": return jsonify([]), 200
         return jsonify(data["data"])
     except Exception as e:
         return jsonify({"error": f"WAQI API error: {str(e)}"}), 500
 
-# ✅ FIX: Added the missing /api/clean-route endpoint
+# ✅ FIX: This entire route was added to support the Trip Planner page.
 @app.route("/api/clean-route")
 def get_clean_route():
     start_loc, end_loc = request.args.get("start"), request.args.get("end")
@@ -217,14 +218,13 @@ def get_clean_route():
         coords = ((start_lon, start_lat), (end_lon, end_lat))
         route = client.directions(coordinates=coords, profile='driving-car', format='geojson')
         
-        # Get bounding box of the route to find relevant AQI stations
         bbox = route['bbox']
         bounds_str = f"{bbox[1]},{bbox[0]},{bbox[3]},{bbox[2]}"
         stations = get_stations_in_bounds(bounds_str)
 
         return jsonify({
             "standard_route": route['features'][0]['geometry'],
-            "clean_route": route['features'][0]['geometry'], # Placeholder: clean route logic is complex
+            "clean_route": route['features'][0]['geometry'], 
             "stations": stations,
             "warning": "Note: Clean route suggestion is a prototype. The standard route is shown."
         })
